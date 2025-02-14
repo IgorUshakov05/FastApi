@@ -16,7 +16,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Конфигурация подключения к MySQL
 DATABASE_URL = "mysql+mysqlconnector://root:Qwerty@localhost/todos"  # Замените на свои данные
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
