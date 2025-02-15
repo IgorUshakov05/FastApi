@@ -1,65 +1,91 @@
-from fastapi import FastAPI,Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import create_engine, Column, Integer, String, Boolean
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+# Создаем экземпляр приложения FastAPI
 app = FastAPI()
-todos = [
-    {"id": 0, "title": "Помыть полы", "complite": False},
-    {"id": 1, "title": "Написать пз", "complite": False},
-    {"id": 2, "title": "Запушить на гитхаб", "complite": False},
-    {"id": 4, "title": "Улыбнуться", "complite": False},
-    {"id": 5, "title": "Потянуться", "complite": False}
-]
 
-def find_item_by_id(items, target_id):
-    
-    return None
-
+# Настройки CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],  # Разрешить все источники
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Конфигурация подключения к MySQL
+DATABASE_URL = "mysql+mysqlconnector://root:Qwerty@localhost/todos"  # Замените на свои данные
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# Модель Todo
+class Todo(Base):
+    __tablename__ = "todos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    complite = Column(Boolean, default=False)
+
+# Создание таблицы в базе данных
+Base.metadata.create_all(bind=engine)
+
+# Функция для получения сессии базы данных
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# CRUD-операции
+
 @app.get("/todo")
 def todos_get():
+    db = next(get_db())
+    todos = db.query(Todo).all()
     return todos
 
 @app.get("/todo/{id}")
 def get_todo(id: int):
-    for item in todos:
-        if item["id"] == id:
-            return item  
-    raise HTTPException(status_code=404, detail=f"Item with id {id} not found")
-
+    db = next(get_db())
+    todo = db.query(Todo).filter(Todo.id == id).first()
+    if not todo:
+        raise HTTPException(status_code=404, detail=f"Item with id {id} not found")
+    return todo
 
 @app.post("/todo")
 async def todos_create(request: Request):
-    new_todo = await request.json()  
-    todo_item = {
-        "id": len(todos),  
-        "title": new_todo.get("title", ""),
-        "complite": False
-    }
-    todos.append(todo_item)  
-    return {"success": True, "new_item": todo_item}  
+    new_todo = await request.json()
+    db = next(get_db())
+    todo_item = Todo(title=new_todo.get("title", ""), complite=False)
+    db.add(todo_item)
+    db.commit()
+    db.refresh(todo_item)
+    return {"success": True, "new_item": todo_item}
 
 @app.delete("/todo")
 async def delete_todo(request: Request):
     id = await request.json()
-    for i, item in enumerate(todos):
-        if item["id"] == id.get("id", ""):
-            removed_item = todos.pop(i)  
-            return {"message": f"Item with id {id} deleted", "removed_item": removed_item}
-    
-    raise HTTPException(status_code=404, detail=f"Item with id {id} not found")
-
+    db = next(get_db())
+    todo = db.query(Todo).filter(Todo.id == id.get("id", "")).first()
+    if not todo:
+        raise HTTPException(status_code=404, detail=f"Item with id {id} not found")
+    db.delete(todo)
+    db.commit()
+    return {"message": f"Item with id {id} deleted", "removed_item": todo}
 
 @app.put("/todo")
 async def set_complite(request: Request):
     body = await request.json()
-    for item in todos:
-        if item["id"] == body.get('id', ''):
-            item["complite"] = True
-            return {"success": True, "item":item}
-    raise HTTPException(status_code=404, detail=f"Item with id {id} not found")
+    db = next(get_db())
+    todo = db.query(Todo).filter(Todo.id == body.get('id', '')).first()
+    if not todo:
+        raise HTTPException(status_code=404, detail=f"Item with id {body.get('id')} not found")
+    todo.complite = True
+    db.commit()
+    db.refresh(todo)
+    return {"success": True, "item": todo}
